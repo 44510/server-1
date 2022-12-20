@@ -1,18 +1,15 @@
 name: Static code analysis
 
-on: [pull_request]
+on: pull_request
 
 jobs:
     static-code-analysis:
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v2
-            - name: Checkout submodules
-              shell: bash
-              run: |
-                auth_header="$(git config --local --get http.https://github.com/.extraheader)"
-                git submodule sync --recursive
-                git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
+            - name: Checkout code
+              uses: actions/checkout@v3
+              with:
+                submodules: recursive
             - name: Set up php
               uses: shivammathur/setup-php@master
               with:
@@ -22,23 +19,43 @@ jobs:
             - name: Composer install
               run: composer i
             - name: Psalm
-              run: composer run psalm -- --monochrome --no-progress --output-format=github --update-baseline || ( git diff -- . ':!lib/composer' && exit 1 )
-            - name: Check diff
-              run: git diff -- . ':!lib/composer'
+              run: composer run psalm -- --monochrome --no-progress --output-format=github --update-baseline --report=results.sarif || ( git diff -- . ':!lib/composer' && exit 1 )
             - name: Show potential changes in Psalm baseline
-              run: |
-                bash -c "[[ ! \"`git status --porcelain build/psalm-baseline.xml`\" ]] || ( echo 'Uncommited changes in Psalm baseline' && git status && git diff build/psalm-baseline.xml)"
+              run: git diff -- . ':!lib/composer'
+            - name: Upload Analysis results to GitHub
+              uses: github/codeql-action/upload-sarif@v2
+              with:
+                sarif_file: results.sarif
+
+    static-code-analysis-security:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v3
+              with:
+                submodules: recursive
+            - name: Set up php
+              uses: shivammathur/setup-php@master
+              with:
+                php-version: 8.0
+                extensions: ctype,curl,dom,fileinfo,gd,intl,json,mbstring,openssl,pdo_sqlite,posix,sqlite,xml,zip
+                coverage: none
+            - name: Composer install
+              run: composer i
+            - name: Psalm taint analysis
+              run: composer run psalm -- --monochrome --no-progress --output-format=github --update-baseline --report=results.sarif --taint-analysis || ( git diff -- . ':!lib/composer' && exit 1 )
+            - name: Upload Security Analysis results to GitHub
+              uses: github/codeql-action/upload-sarif@v2
+              with:
+                sarif_file: results.sarif
 
     static-code-analysis-ocp:
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v2
-            - name: Checkout submodules
-              shell: bash
-              run: |
-                auth_header="$(git config --local --get http.https://github.com/.extraheader)"
-                git submodule sync --recursive
-                git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
+            - name: Checkout code
+              uses: actions/checkout@v3
+              with:
+                submodules: recursive
             - name: Set up php
               uses: shivammathur/setup-php@master
               with:
@@ -49,8 +66,5 @@ jobs:
               run: composer i
             - name: Psalm
               run: composer run psalm -- -c psalm-ocp.xml --monochrome --no-progress --output-format=github --update-baseline || ( git diff -- . ':!lib/composer' && exit 1 )
-            - name: Check diff
-              run: git diff -- . ':!lib/composer'
             - name: Show potential changes in Psalm baseline
-              run: |
-                bash -c "[[ ! \"`git status --porcelain build/psalm-baseline-ocp.xml`\" ]] || ( echo 'Uncommited changes in Psalm baseline' && git status && git diff build/psalm-baseline.xml)"
+              run: git diff -- . ':!lib/composer'
